@@ -64,27 +64,7 @@ export const LoginPage = () => {
           </button>
         </form>
 
-        {/* Demo credentials */}
-        <div className="mt-6 pt-6 border-t border-gray-100">
-          <p className="text-xs text-gray-500 mb-3 font-medium">Demo accounts</p>
-          <div className="space-y-2">
-            {[
-              { role: 'Admin',     email: 'admin@ems.com',     color: 'red' },
-              { role: 'Warehouse', email: 'warehouse@ems.com', color: 'blue' },
-              { role: 'Sales',     email: 'sales@ems.com',     color: 'green' },
-            ].map(({ role, email, color }) => (
-              <button key={role} type="button" onClick={() => fill(email)}
-                className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-colors
-                  ${color === 'red'   ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100' : ''}
-                  ${color === 'blue'  ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : ''}
-                  ${color === 'green' ? 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100' : ''}
-                `}>
-                <span className="font-medium">{role}</span>
-                <span className="ml-2 opacity-70">{email}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+
       </div>
     </div>
   );
