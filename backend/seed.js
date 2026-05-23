@@ -22,8 +22,25 @@ const random = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick   = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 async function seed() {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ ERROR: Database seeding is disabled in production environment to prevent data loss.');
+    process.exit(1);
+  }
+
   const client = await pool.connect();
   try {
+    // Check if database already has users
+    const userCountRes = await client.query("SELECT COUNT(*)::int AS count FROM pg_tables WHERE schemaname = 'public' AND tablename = 'users'");
+    if (userCountRes.rows[0].count > 0) {
+      const { rows } = await client.query('SELECT COUNT(*)::int AS count FROM users');
+      if (rows[0].count > 0 && process.env.FORCE_SEED !== 'true') {
+        console.error('❌ ERROR: Database already contains data. Seeding aborted to prevent overwriting your database.');
+        console.error('If you really want to clear and seed this database, run: FORCE_SEED=true npm run seed');
+        client.release();
+        process.exit(1);
+      }
+    }
+
     await client.query('BEGIN');
 
     // Clear existing data
