@@ -22,8 +22,8 @@ const random = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick   = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 async function seed() {
-  if (process.env.NODE_ENV === 'production') {
-    console.error('❌ ERROR: Database seeding is disabled in production environment to prevent data loss.');
+  if (process.env.NODE_ENV === 'production' && process.env.FORCE_SEED !== 'true') {
+    console.error('❌ ERROR: Database seeding is disabled in production environment to prevent data loss. Use FORCE_SEED=true to override.');
     process.exit(1);
   }
 
