@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './routes/ProtectedRoute';
 import { Layout } from './components/layout/Layout';
@@ -16,7 +17,12 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login" element={
+            <>
+              <SignedIn><Navigate to="/" replace /></SignedIn>
+              <SignedOut><LoginPage /></SignedOut>
+            </>
+          } />
 
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>

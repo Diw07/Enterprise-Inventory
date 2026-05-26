@@ -26,7 +26,7 @@ export const UsersPage = () => {
     <div>
       <PageHeader title="User Management" subtitle="Manage roles and access for all system users" />
       <p className="text-sm text-gray-500 mb-5">
-        New users are created via <span className="font-mono bg-gray-100 px-1 rounded">POST /api/auth/register</span> (Admin only).
+        Invite new members and manage their system access through the Clerk Enterprise organization switcher.
       </p>
 
       {isLoading ? <Spinner /> : (

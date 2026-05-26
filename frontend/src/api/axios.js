@@ -2,57 +2,22 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: '/api',
-  withCredentials: true, // send httpOnly refresh cookie
+  withCredentials: true,
 });
 
-// Attach access token from memory store
-api.interceptors.request.use((config) => {
-  const token = window.__accessToken;
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+// Attach Clerk session token to every request
+api.interceptors.request.use(async (config) => {
+  // The Clerk session token is fetched from the global Clerk instance
+  // This is set by ClerkProvider in main.jsx
+  if (window.Clerk) {
+    try {
+      const token = await window.Clerk.session?.getToken();
+      if (token) config.headers.Authorization = `Bearer ${token}`;
+    } catch {
+      // Token fetch failed, proceed without auth header
+    }
+  }
   return config;
 });
-
-// Auto-refresh on 401
-let isRefreshing = false;
-let failQueue = [];
-
-const processQueue = (error, token = null) => {
-  failQueue.forEach(({ resolve, reject }) => error ? reject(error) : resolve(token));
-  failQueue = [];
-};
-
-api.interceptors.response.use(
-  (res) => res,
-  async (err) => {
-    const original = err.config;
-    if (err.response?.status === 401 && !original._retry && !original.url?.includes('/auth/')) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failQueue.push({ resolve, reject });
-        }).then((token) => {
-          original.headers.Authorization = `Bearer ${token}`;
-          return api(original);
-        });
-      }
-      original._retry = true;
-      isRefreshing = true;
-      try {
-        const { data } = await api.post('/auth/refresh');
-        window.__accessToken = data.data.accessToken;
-        processQueue(null, data.data.accessToken);
-        original.headers.Authorization = `Bearer ${data.data.accessToken}`;
-        return api(original);
-      } catch (refreshErr) {
-        processQueue(refreshErr, null);
-        window.__accessToken = null;
-        window.dispatchEvent(new Event('auth:logout'));
-        return Promise.reject(refreshErr);
-      } finally {
-        isRefreshing = false;
-      }
-    }
-    return Promise.reject(err);
-  }
-);
 
 export default api;

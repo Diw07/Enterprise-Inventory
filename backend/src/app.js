@@ -8,7 +8,7 @@ const cookieParser = require('cookie-parser');
 
 const { errorHandler } = require('./middleware/error');
 
-const authRouter      = require('./modules/auth/auth.router');
+
 const userRouter      = require('./modules/users/user.router');
 const productRouter   = require('./modules/products/product.router');
 const supplierRouter  = require('./modules/suppliers/supplier.router');
@@ -34,7 +34,7 @@ app.use('/api', limiter);
 app.get('/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
 // Routes
-app.use('/api/auth',      authRouter);
+
 app.use('/api/users',     userRouter);
 app.use('/api/products',  productRouter);
 app.use('/api/suppliers', supplierRouter);

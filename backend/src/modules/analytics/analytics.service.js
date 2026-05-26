@@ -1,16 +1,17 @@
 const pool = require('../../config/db');
 
 class AnalyticsService {
-  async getKpis() {
+  async getKpis(tenantId) {
     const [stockValue, pendingOrders, lowStock, ordersThisMonth] = await Promise.all([
       pool.query(`SELECT COALESCE(SUM(i.quantity_on_hand * p.unit_price), 0) AS total_stock_value
-                  FROM inventory i JOIN products p ON p.id = i.product_id AND p.is_active = TRUE`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM orders WHERE status = 'pending'`),
+                  FROM inventory i JOIN products p ON p.id = i.product_id AND p.is_active = TRUE
+                  WHERE i.tenant_id = $1`, [tenantId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM orders WHERE status = 'pending' AND tenant_id = $1`, [tenantId]),
       pool.query(`SELECT COUNT(*)::int AS count FROM inventory i
                   JOIN products p ON p.id = i.product_id AND p.is_active = TRUE
-                  WHERE i.quantity_on_hand <= p.reorder_level`),
+                  WHERE i.quantity_on_hand <= p.reorder_level AND i.tenant_id = $1`, [tenantId]),
       pool.query(`SELECT COUNT(*)::int AS count FROM orders
-                  WHERE created_at >= date_trunc('month', NOW())`),
+                  WHERE created_at >= date_trunc('month', NOW()) AND tenant_id = $1`, [tenantId]),
     ]);
 
     return {
@@ -21,7 +22,7 @@ class AnalyticsService {
     };
   }
 
-  async getTopProducts(limit = 10) {
+  async getTopProducts(tenantId, limit = 10) {
     const { rows } = await pool.query(
       `SELECT p.id, p.name, p.sku, p.category,
               COALESCE(SUM(oi.quantity), 0)::int AS total_sold,
@@ -29,57 +30,59 @@ class AnalyticsService {
        FROM products p
        LEFT JOIN order_items oi ON oi.product_id = p.id
        LEFT JOIN orders o ON o.id = oi.order_id AND o.type = 'sale' AND o.status != 'cancelled'
-       WHERE p.is_active = TRUE
+       WHERE p.is_active = TRUE AND p.tenant_id = $1
        GROUP BY p.id, p.name, p.sku, p.category
        ORDER BY total_sold DESC
-       LIMIT $1`,
-      [limit]
+       LIMIT $2`,
+      [tenantId, limit]
     );
     return rows;
   }
 
-  async getStockValue() {
+  async getStockValue(tenantId) {
     const { rows } = await pool.query(
       `SELECT p.category,
               COALESCE(SUM(i.quantity_on_hand * p.unit_price), 0) AS value,
               COUNT(p.id)::int AS product_count
        FROM inventory i
        JOIN products p ON p.id = i.product_id AND p.is_active = TRUE
+       WHERE i.tenant_id = $1
        GROUP BY p.category
-       ORDER BY value DESC`
+       ORDER BY value DESC`,
+      [tenantId]
     );
     return rows;
   }
 
-  async getMovementsTrend(days = 30) {
+  async getMovementsTrend(tenantId, days = 30) {
     const { rows } = await pool.query(
       `SELECT DATE(created_at) AS date,
               SUM(CASE WHEN movement_type = 'in'  THEN change_qty ELSE 0 END)::int AS stock_in,
               ABS(SUM(CASE WHEN movement_type = 'out' THEN change_qty ELSE 0 END))::int AS stock_out
        FROM stock_movements
-       WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL
+       WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL AND tenant_id = $2
        GROUP BY DATE(created_at)
        ORDER BY date ASC`,
-      [days]
+      [days, tenantId]
     );
     return rows;
   }
 
-  async getOrderTrend(days = 30) {
+  async getOrderTrend(tenantId, days = 30) {
     const { rows } = await pool.query(
       `SELECT DATE(created_at) AS date,
               SUM(CASE WHEN type='purchase' THEN 1 ELSE 0 END)::int AS purchases,
               SUM(CASE WHEN type='sale'     THEN 1 ELSE 0 END)::int AS sales
        FROM orders
-       WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL
+       WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL AND tenant_id = $2
        GROUP BY DATE(created_at)
        ORDER BY date ASC`,
-      [days]
+      [days, tenantId]
     );
     return rows;
   }
 
-  async getReorderReport() {
+  async getReorderReport(tenantId) {
     const { rows } = await pool.query(
       `SELECT p.id, p.sku, p.name, p.category, p.reorder_level,
               i.quantity_on_hand, (p.reorder_level - i.quantity_on_hand) AS units_needed,
@@ -87,8 +90,9 @@ class AnalyticsService {
        FROM inventory i
        JOIN products p ON p.id = i.product_id AND p.is_active = TRUE
        LEFT JOIN suppliers s ON s.id = p.supplier_id
-       WHERE i.quantity_on_hand <= p.reorder_level
-       ORDER BY units_needed DESC`
+       WHERE i.quantity_on_hand <= p.reorder_level AND i.tenant_id = $1
+       ORDER BY units_needed DESC`,
+      [tenantId]
     );
     return rows;
   }

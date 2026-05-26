@@ -1,8 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import { OrganizationSwitcher, UserButton } from '@clerk/clerk-react';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   LayoutDashboard, Package, Warehouse, ShoppingCart,
-  Truck, BarChart2, Users, LogOut, ChevronRight, AlertTriangle
+  Truck, BarChart2, Users
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../api/axios';
@@ -18,16 +19,14 @@ const navItems = [
 ];
 
 export const Sidebar = () => {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user, organization } = useAuth();
 
   const { data: kpis } = useQuery({
-    queryKey: ['kpis'],
+    queryKey: ['kpis', organization?.id],
     queryFn: () => api.get('/analytics/kpis').then(r => r.data.data),
     refetchInterval: 60_000,
+    enabled: !!organization,
   });
-
-  const handleLogout = async () => { await logout(); navigate('/login'); };
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0">
@@ -39,6 +38,21 @@ export const Sidebar = () => {
           </div>
           <span className="font-semibold text-gray-900">EMS</span>
         </div>
+      </div>
+
+      {/* Organization Switcher */}
+      <div className="px-3 py-3 border-b border-gray-100">
+        <OrganizationSwitcher
+          hidePersonal={true}
+          afterCreateOrganizationUrl="/"
+          afterSelectOrganizationUrl="/"
+          appearance={{
+            elements: {
+              rootBox: 'w-full',
+              organizationSwitcherTrigger: 'w-full justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm',
+            }
+          }}
+        />
       </div>
 
       {/* Nav */}
@@ -73,20 +87,18 @@ export const Sidebar = () => {
       </nav>
 
       {/* User */}
-      <div className="px-3 py-4 border-t border-gray-100">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50 mb-2">
-          <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-medium text-sm">
-            {user?.name?.charAt(0)}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
-            <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
-          </div>
-        </div>
-        <button onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-          <LogOut size={16} /> Logout
-        </button>
+      <div className="px-4 py-4 border-t border-gray-100">
+        <UserButton
+          afterSignOutUrl="/login"
+          appearance={{
+            elements: {
+              rootBox: 'w-full',
+              userButtonTrigger: 'w-full justify-start',
+              userButtonBox: 'flex-row-reverse',
+            }
+          }}
+          showName={true}
+        />
       </div>
     </aside>
   );
