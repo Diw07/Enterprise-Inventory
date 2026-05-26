@@ -1,7 +1,10 @@
 require('dotenv').config();
 const pool   = require('./src/config/db');
-const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
+
+// Demo tenant ID — used for seeding demo data
+const DEMO_TENANT_ID = 'demo_tenant_001';
+const DEMO_TENANT_NAME = 'Demo Enterprise Inc.';
 
 const SUPPLIERS = [
   { name: 'TechParts Global',    contact_email: 'orders@techparts.com',   phone: '+1-555-0101', lead_time_days: 5  },
@@ -16,8 +19,6 @@ const SUPPLIERS = [
   { name: 'QualityFirst Ltd',    contact_email: 'quality@qfl.com',        phone: '+61-555-1010', lead_time_days: 10 },
 ];
 
-const CATEGORIES = ['Electronics', 'Office Supplies', 'Furniture', 'Tools', 'Safety Equipment'];
-
 const random = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick   = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -29,51 +30,49 @@ async function seed() {
 
   const client = await pool.connect();
   try {
-    // Check if database already has users
-    const userCountRes = await client.query("SELECT COUNT(*)::int AS count FROM pg_tables WHERE schemaname = 'public' AND tablename = 'users'");
-    if (userCountRes.rows[0].count > 0) {
-      const { rows } = await client.query('SELECT COUNT(*)::int AS count FROM users');
-      if (rows[0].count > 0 && process.env.FORCE_SEED !== 'true') {
-        console.error('❌ ERROR: Database already contains data. Seeding aborted to prevent overwriting your database.');
-        console.error('If you really want to clear and seed this database, run: FORCE_SEED=true npm run seed');
-        client.release();
-        process.exit(1);
-      }
-    }
-
     await client.query('BEGIN');
 
-    // Clear existing data
-    await client.query('DELETE FROM stock_movements');
-    await client.query('DELETE FROM order_items');
-    await client.query('DELETE FROM orders');
-    await client.query('DELETE FROM inventory');
-    await client.query('DELETE FROM products');
-    await client.query('DELETE FROM suppliers');
-    await client.query('DELETE FROM users');
+    // Clear existing demo data
+    await client.query('DELETE FROM stock_movements WHERE tenant_id = $1', [DEMO_TENANT_ID]);
+    await client.query('DELETE FROM order_items WHERE tenant_id = $1', [DEMO_TENANT_ID]);
+    await client.query('DELETE FROM orders WHERE tenant_id = $1', [DEMO_TENANT_ID]);
+    await client.query('DELETE FROM inventory WHERE tenant_id = $1', [DEMO_TENANT_ID]);
+    await client.query('DELETE FROM products WHERE tenant_id = $1', [DEMO_TENANT_ID]);
+    await client.query('DELETE FROM suppliers WHERE tenant_id = $1', [DEMO_TENANT_ID]);
+    await client.query('DELETE FROM users WHERE tenant_id = $1', [DEMO_TENANT_ID]);
+    await client.query('DELETE FROM tenants WHERE id = $1', [DEMO_TENANT_ID]);
 
-    // USERS
-    const hash = await bcrypt.hash('password123', 10);
-    const { rows: [admin] } = await client.query(
-      `INSERT INTO users (name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING id`,
-      ['Admin User', 'admin@ems.com', hash, 'admin']
+    // Create demo tenant
+    await client.query(
+      'INSERT INTO tenants (id, name) VALUES ($1, $2)',
+      [DEMO_TENANT_ID, DEMO_TENANT_NAME]
     );
-    const { rows: [warehouse] } = await client.query(
-      `INSERT INTO users (name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING id`,
-      ['Warehouse Manager', 'warehouse@ems.com', hash, 'warehouse']
+
+    // USERS — now using string IDs (like Clerk would)
+    const adminId = 'demo_user_admin';
+    const warehouseId = 'demo_user_warehouse';
+    const salesId = 'demo_user_sales';
+
+    await client.query(
+      `INSERT INTO users (id, tenant_id, name, email, role) VALUES ($1,$2,$3,$4,$5)`,
+      [adminId, DEMO_TENANT_ID, 'Admin User', 'admin@ems.com', 'admin']
     );
-    const { rows: [sales] } = await client.query(
-      `INSERT INTO users (name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING id`,
-      ['Sales Rep', 'sales@ems.com', hash, 'sales']
+    await client.query(
+      `INSERT INTO users (id, tenant_id, name, email, role) VALUES ($1,$2,$3,$4,$5)`,
+      [warehouseId, DEMO_TENANT_ID, 'Warehouse Manager', 'warehouse@ems.com', 'warehouse']
     );
-    const userIds = [admin.id, warehouse.id, sales.id];
+    await client.query(
+      `INSERT INTO users (id, tenant_id, name, email, role) VALUES ($1,$2,$3,$4,$5)`,
+      [salesId, DEMO_TENANT_ID, 'Sales Rep', 'sales@ems.com', 'sales']
+    );
+    const userIds = [adminId, warehouseId, salesId];
 
     // SUPPLIERS
     const supplierIds = [];
     for (const s of SUPPLIERS) {
       const { rows: [r] } = await client.query(
-        `INSERT INTO suppliers (name, contact_email, phone, lead_time_days) VALUES ($1,$2,$3,$4) RETURNING id`,
-        [s.name, s.contact_email, s.phone, s.lead_time_days]
+        `INSERT INTO suppliers (tenant_id, name, contact_email, phone, lead_time_days) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+        [DEMO_TENANT_ID, s.name, s.contact_email, s.phone, s.lead_time_days]
       );
       supplierIds.push(r.id);
     }
@@ -110,17 +109,17 @@ async function seed() {
       const [name, cat, price] = productNames[i];
       const sku = `SKU-${String(i + 1).padStart(4, '0')}`;
       const { rows: [p] } = await client.query(
-        `INSERT INTO products (sku, name, category, unit_price, reorder_level, supplier_id)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-        [sku, name, cat, price, random(5, 20), pick(supplierIds)]
+        `INSERT INTO products (tenant_id, sku, name, category, unit_price, reorder_level, supplier_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        [DEMO_TENANT_ID, sku, name, cat, price, random(5, 20), pick(supplierIds)]
       );
       productIds.push(p.id);
 
       const qty = random(0, 150);
       await client.query(
-        `INSERT INTO inventory (product_id, quantity_on_hand, warehouse_location)
-         VALUES ($1,$2,$3)`,
-        [p.id, qty, `RACK-${String.fromCharCode(65 + (i % 8))}-${random(1, 20)}`]
+        `INSERT INTO inventory (tenant_id, product_id, quantity_on_hand, warehouse_location)
+         VALUES ($1,$2,$3,$4)`,
+        [DEMO_TENANT_ID, p.id, qty, `RACK-${String.fromCharCode(65 + (i % 8))}-${random(1, 20)}`]
       );
     }
 
@@ -131,10 +130,10 @@ async function seed() {
       const status = pick(statuses);
       const daysAgo = random(0, 90);
       const { rows: [order] } = await client.query(
-        `INSERT INTO orders (order_number, status, type, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4, NOW()-($5||' days')::INTERVAL, NOW()-($5||' days')::INTERVAL)
+        `INSERT INTO orders (tenant_id, order_number, status, type, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5, NOW()-($6||' days')::INTERVAL, NOW()-($6||' days')::INTERVAL)
          RETURNING id`,
-        [`ORD-${String(i + 1).padStart(6, '0')}`, status, type, pick(userIds), daysAgo]
+        [DEMO_TENANT_ID, `ORD-${String(i + 1).padStart(6, '0')}`, status, type, pick(userIds), daysAgo]
       );
 
       const itemCount = random(1, 4);
@@ -145,9 +144,9 @@ async function seed() {
         usedProducts.add(pid);
         const { rows: [prod] } = await client.query('SELECT unit_price FROM products WHERE id=$1', [pid]);
         await client.query(
-          `INSERT INTO order_items (order_id, product_id, quantity, unit_price_snapshot)
-           VALUES ($1,$2,$3,$4)`,
-          [order.id, pid, random(1, 20), prod.unit_price]
+          `INSERT INTO order_items (tenant_id, order_id, product_id, quantity, unit_price_snapshot)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [DEMO_TENANT_ID, order.id, pid, random(1, 20), prod.unit_price]
         );
       }
 
@@ -158,19 +157,21 @@ async function seed() {
           const mvType = type === 'sale' ? 'out' : 'in';
           const changeQty = type === 'sale' ? -item.quantity : item.quantity;
           await client.query(
-            `INSERT INTO stock_movements (product_id, order_id, change_qty, movement_type, performed_by, created_at)
-             VALUES ($1,$2,$3,$4,$5, NOW()-($6||' days')::INTERVAL)`,
-            [item.product_id, order.id, changeQty, mvType, pick(userIds), daysAgo]
+            `INSERT INTO stock_movements (tenant_id, product_id, order_id, change_qty, movement_type, performed_by, created_at)
+             VALUES ($1,$2,$3,$4,$5,$6, NOW()-($7||' days')::INTERVAL)`,
+            [DEMO_TENANT_ID, item.product_id, order.id, changeQty, mvType, pick(userIds), daysAgo]
           );
         }
       }
     }
 
     await client.query('COMMIT');
-    console.log('✅  Seed complete. Demo credentials:');
-    console.log('   Admin:     admin@ems.com     / password123');
-    console.log('   Warehouse: warehouse@ems.com / password123');
-    console.log('   Sales:     sales@ems.com     / password123');
+    console.log('✅  Seed complete with demo tenant data!');
+    console.log(`   Tenant:    ${DEMO_TENANT_NAME} (${DEMO_TENANT_ID})`);
+    console.log('   Demo users: admin@ems.com, warehouse@ems.com, sales@ems.com');
+    console.log('');
+    console.log('ℹ️  Note: These demo accounts use Clerk IDs internally.');
+    console.log('   To test, create a Clerk org and the app will auto-provision a fresh tenant.');
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('❌  Seed failed:', e.message);

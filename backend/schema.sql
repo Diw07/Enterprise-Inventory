@@ -1,5 +1,5 @@
 -- ============================================================
--- Enterprise Inventory Management System — Database Schema
+-- Enterprise Inventory Management System — Database Schema (Multi-Tenant Clerk)
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -11,18 +11,28 @@ CREATE TYPE order_type AS ENUM ('purchase', 'sale');
 CREATE TYPE movement_type AS ENUM ('in', 'out', 'adjustment');
 
 -- ============================================================
--- USERS
+-- TENANTS (Clerk Organizations)
 -- ============================================================
-CREATE TABLE users (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name            VARCHAR(100) NOT NULL,
-  email           VARCHAR(150) NOT NULL UNIQUE,
-  password_hash   TEXT NOT NULL,
-  role            user_role NOT NULL DEFAULT 'sales',
-  refresh_token   TEXT,
-  is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+CREATE TABLE tenants (
+  id              VARCHAR(255) PRIMARY KEY, -- Clerk org_id
+  name            VARCHAR(255) NOT NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- USERS (Clerk Users)
+-- ============================================================
+CREATE TABLE users (
+  id              VARCHAR(255) PRIMARY KEY, -- Clerk user_id
+  tenant_id       VARCHAR(255) REFERENCES tenants(id) ON DELETE CASCADE,
+  name            VARCHAR(100) NOT NULL,
+  email           VARCHAR(150) NOT NULL,
+  role            user_role NOT NULL DEFAULT 'sales',
+  is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tenant_id, email)
 );
 
 -- ============================================================
@@ -30,6 +40,7 @@ CREATE TABLE users (
 -- ============================================================
 CREATE TABLE suppliers (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id       VARCHAR(255) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name            VARCHAR(150) NOT NULL,
   contact_email   VARCHAR(150),
   phone           VARCHAR(30),
@@ -40,12 +51,15 @@ CREATE TABLE suppliers (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_suppliers_tenant ON suppliers(tenant_id);
+
 -- ============================================================
 -- PRODUCTS
 -- ============================================================
 CREATE TABLE products (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  sku             VARCHAR(60) NOT NULL UNIQUE,
+  tenant_id       VARCHAR(255) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  sku             VARCHAR(60) NOT NULL,
   name            VARCHAR(200) NOT NULL,
   description     TEXT,
   category        VARCHAR(80) NOT NULL,
@@ -54,9 +68,11 @@ CREATE TABLE products (
   supplier_id     UUID REFERENCES suppliers(id) ON DELETE SET NULL,
   is_active       BOOLEAN NOT NULL DEFAULT TRUE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tenant_id, sku)
 );
 
+CREATE INDEX idx_products_tenant       ON products(tenant_id);
 CREATE INDEX idx_products_category     ON products(category);
 CREATE INDEX idx_products_supplier     ON products(supplier_id);
 CREATE INDEX idx_products_sku          ON products(sku);
@@ -66,12 +82,14 @@ CREATE INDEX idx_products_sku          ON products(sku);
 -- ============================================================
 CREATE TABLE inventory (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id           VARCHAR(255) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   product_id          UUID NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
   quantity_on_hand    INT NOT NULL DEFAULT 0 CHECK (quantity_on_hand >= 0),
   warehouse_location  VARCHAR(50),
   last_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_inventory_tenant  ON inventory(tenant_id);
 CREATE INDEX idx_inventory_product ON inventory(product_id);
 
 -- ============================================================
@@ -79,15 +97,18 @@ CREATE INDEX idx_inventory_product ON inventory(product_id);
 -- ============================================================
 CREATE TABLE orders (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  order_number    VARCHAR(30) NOT NULL UNIQUE,
+  tenant_id       VARCHAR(255) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  order_number    VARCHAR(30) NOT NULL,
   status          order_status NOT NULL DEFAULT 'pending',
   type            order_type NOT NULL,
-  created_by      UUID NOT NULL REFERENCES users(id),
+  created_by      VARCHAR(255) NOT NULL REFERENCES users(id),
   notes           TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tenant_id, order_number)
 );
 
+CREATE INDEX idx_orders_tenant      ON orders(tenant_id);
 CREATE INDEX idx_orders_status      ON orders(status);
 CREATE INDEX idx_orders_type        ON orders(type);
 CREATE INDEX idx_orders_created_by  ON orders(created_by);
@@ -98,6 +119,7 @@ CREATE INDEX idx_orders_created_at  ON orders(created_at DESC);
 -- ============================================================
 CREATE TABLE order_items (
   id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id               VARCHAR(255) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   order_id                UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   product_id              UUID NOT NULL REFERENCES products(id),
   quantity                INT NOT NULL CHECK (quantity > 0),
@@ -105,6 +127,7 @@ CREATE TABLE order_items (
   UNIQUE (order_id, product_id)
 );
 
+CREATE INDEX idx_order_items_tenant  ON order_items(tenant_id);
 CREATE INDEX idx_order_items_order   ON order_items(order_id);
 CREATE INDEX idx_order_items_product ON order_items(product_id);
 
@@ -113,15 +136,17 @@ CREATE INDEX idx_order_items_product ON order_items(product_id);
 -- ============================================================
 CREATE TABLE stock_movements (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id       VARCHAR(255) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   product_id      UUID NOT NULL REFERENCES products(id),
   order_id        UUID REFERENCES orders(id) ON DELETE SET NULL,
   change_qty      INT NOT NULL,
   movement_type   movement_type NOT NULL,
-  performed_by    UUID NOT NULL REFERENCES users(id),
+  performed_by    VARCHAR(255) NOT NULL REFERENCES users(id),
   notes           TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_movements_tenant     ON stock_movements(tenant_id);
 CREATE INDEX idx_movements_product    ON stock_movements(product_id);
 CREATE INDEX idx_movements_order      ON stock_movements(order_id);
 CREATE INDEX idx_movements_created_at ON stock_movements(created_at DESC);
@@ -137,6 +162,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE TRIGGER trg_tenants_updated_at   BEFORE UPDATE ON tenants   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_users_updated_at     BEFORE UPDATE ON users     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_suppliers_updated_at BEFORE UPDATE ON suppliers FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_products_updated_at  BEFORE UPDATE ON products  FOR EACH ROW EXECUTE FUNCTION set_updated_at();

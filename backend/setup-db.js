@@ -60,6 +60,10 @@ async function setup() {
     console.log(`📖 Reading schema file from: ${schemaPath}`);
     const schemaSql = fs.readFileSync(schemaPath, 'utf8');
 
+    console.log('🧹 Cleaning database schema (recreating public schema)...');
+    await targetClient.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+    await targetClient.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
+
     console.log('🔨 Executing schema SQL...');
     await targetClient.query(schemaSql);
     console.log('✅ Schema applied successfully.');
