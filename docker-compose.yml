@@ -34,10 +34,8 @@ services:
       DB_NAME: ems_db
       DB_USER: postgres
       DB_PASSWORD: postgres
-      JWT_SECRET: supersecret_jwt_key_change_in_prod_min32chars!
-      JWT_EXPIRES_IN: 15m
-      REFRESH_SECRET: supersecret_refresh_key_change_in_prod_32!
-      REFRESH_EXPIRES_IN: 7d
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
       CORS_ORIGIN: http://localhost:5173
     ports:
       - '5000:5000'
@@ -49,6 +47,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
     container_name: ems_frontend
     restart: unless-stopped
     ports:
